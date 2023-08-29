@@ -17,6 +17,10 @@
 package org.apache.calcite.plan;
 
 import org.apache.calcite.config.CalciteSystemProperty;
+import org.apache.calcite.plan.expand.ExpandJoinOnCalcToJoinUnifyRule;
+import org.apache.calcite.plan.expand.ExpandJoinOnLeftCalcToJoinUnifyRule;
+import org.apache.calcite.plan.expand.ExpandJoinOnRightCalcToJoinUnifyRule;
+import org.apache.calcite.plan.expand.JoinEquivUnifyRule;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Aggregate;
 import org.apache.calcite.rel.core.AggregateCall;
@@ -141,7 +145,11 @@ public class SubstitutionVisitor {
           UnionToUnionUnifyRule.INSTANCE,
           UnionOnCalcsToUnionUnifyRule.INSTANCE,
           IntersectToIntersectUnifyRule.INSTANCE,
-          IntersectOnCalcsToIntersectUnifyRule.INSTANCE);
+          IntersectOnCalcsToIntersectUnifyRule.INSTANCE,
+          ExpandJoinOnLeftCalcToJoinUnifyRule.INSTANCE,
+          ExpandJoinOnRightCalcToJoinUnifyRule.INSTANCE,
+          ExpandJoinOnCalcToJoinUnifyRule.INSTANCE,
+          JoinEquivUnifyRule.INSTANCE);
 
   /**
    * Factory for a builder for relational expressions.
