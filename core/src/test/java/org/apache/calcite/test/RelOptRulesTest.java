@@ -8529,6 +8529,46 @@ class RelOptRulesTest extends RelOptTestBase {
         .check();
   }
 
+  @Test void testDecorrelateProjectFetchOne() {
+    final String query = "SELECT name, "
+        + "(SELECT mgr FROM emp where dept.deptno = emp.deptno order by mgr limit 1) "
+        + "FROM dept";
+    sql(query).withRule(
+            CoreRules.PROJECT_SUB_QUERY_TO_CORRELATE)
+        .withLateDecorrelate(true)
+        .check();
+  }
+
+  @Test void testDecorrelateProjectFetchOneDesc() {
+    final String query = "SELECT name, "
+        + "(SELECT emp.mgr FROM emp WHERE dept.deptno = emp.deptno ORDER BY emp.mgr desc LIMIT 1) "
+        + "FROM dept";
+    sql(query).withRule(
+            CoreRules.PROJECT_SUB_QUERY_TO_CORRELATE)
+        .withLateDecorrelate(true)
+        .check();
+  }
+
+  @Test void testDecorrelateFilterFetchOne() {
+    final String query = "SELECT name FROM dept "
+        + "WHERE 10 > (SELECT emp.mgr FROM emp where dept.deptno = emp.deptno "
+        + "ORDER BY emp.mgr desc limit 1)";
+    sql(query).withRule(
+            CoreRules.FILTER_SUB_QUERY_TO_CORRELATE)
+        .withLateDecorrelate(true)
+        .check();
+  }
+
+  @Test void testDecorrelateFilterFetchOneMultiKey() {
+    final String query = "SELECT name FROM dept "
+        + "WHERE 10 > (SELECT emp.mgr FROM emp where dept.deptno = emp.deptno "
+        + "order by ename, emp.mgr limit 1)";
+    sql(query).withRule(
+            CoreRules.FILTER_SUB_QUERY_TO_CORRELATE)
+        .withLateDecorrelate(true)
+        .check();
+  }
+
   /** Test case for
    * <a href="https://issues.apache.org/jira/browse/CALCITE-434">[CALCITE-434]
    * Converting predicates on date dimension columns into date ranges</a>,

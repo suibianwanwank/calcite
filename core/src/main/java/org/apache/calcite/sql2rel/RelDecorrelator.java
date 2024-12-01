@@ -31,6 +31,7 @@ import org.apache.calcite.plan.hep.HepProgramBuilder;
 import org.apache.calcite.plan.hep.HepRelVertex;
 import org.apache.calcite.rel.BiRel;
 import org.apache.calcite.rel.RelCollation;
+import org.apache.calcite.rel.RelFieldCollation;
 import org.apache.calcite.rel.RelHomogeneousShuttle;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Aggregate;
@@ -73,6 +74,7 @@ import org.apache.calcite.rex.RexSubQuery;
 import org.apache.calcite.rex.RexUtil;
 import org.apache.calcite.rex.RexVisitorImpl;
 import org.apache.calcite.runtime.PairList;
+import org.apache.calcite.sql.SqlAggFunction;
 import org.apache.calcite.sql.SqlExplainFormat;
 import org.apache.calcite.sql.SqlExplainLevel;
 import org.apache.calcite.sql.SqlFunction;
@@ -94,6 +96,7 @@ import org.apache.calcite.util.Util;
 import org.apache.calcite.util.mapping.Mappings;
 import org.apache.calcite.util.trace.CalciteTrace;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
@@ -400,6 +403,7 @@ public class RelDecorrelator implements ReflectiveVisitor {
             RemoveCorrelationForScalarProjectRule.DEFAULT.withRelBuilderFactory(f).toRule())
         .addRuleInstance(
             RemoveCorrelationForScalarAggregateRule.DEFAULT.withRelBuilderFactory(f).toRule())
+        .addRuleInstance(FetchOneSortToAggregateRule.DEFAULT.withRelBuilderFactory(f).toRule())
         .build();
     return removeCorrelationViaRule(root, program);
   }
@@ -520,6 +524,19 @@ public class RelDecorrelator implements ReflectiveVisitor {
     final Frame frame = getInvoke(oldInput, isCorVarDefined, rel);
     if (frame == null) {
       // If input has not been rewritten, do not rewrite this rel.
+      return null;
+    }
+
+    // Can not decorrelate if the sort has per-correlate-key attributes like
+    // offset or fetch limit, because these attributes scope would change to
+    // global after decorrelation. They should take effect within the scope
+    // of the correlation key actually.
+    if (isCorVarDefined && (rel.fetch != null || rel.offset != null)) {
+      if (rel.fetch != null
+          && rel.offset == null
+          && RexLiteral.intValue(rel.fetch) == 1) {
+        return decorrelateFetchOne(rel, frame);
+      }
       return null;
     }
 
@@ -764,19 +781,74 @@ public class RelDecorrelator implements ReflectiveVisitor {
     }
   }
 
+  private Frame decorrelateFetchOne(Sort sort, Frame frame) {
+
+    final List<CorDef> corDefList = new ArrayList<>();
+    final PairList<RexNode, String> corVarProjects = PairList.of();
+    for (Map.Entry<CorDef, Integer> entry : frame.corDefOutputs.entrySet()) {
+      RexInputRef.add2(corVarProjects, entry.getValue(),
+          frame.r.getRowType().getFieldList());
+      corDefList.add(entry.getKey());
+    }
+
+    final PairList<RexNode, String> windowProjects = PairList.of();
+
+    for (RelDataTypeField field : sort.getRowType().getFieldList()) {
+      final int newIndex =
+          requireNonNull(frame.oldToNewOutputs.get(field.getIndex()));
+
+      RelBuilder.AggCall aggCall =
+          relBuilder.aggregateCall(SqlStdOperatorTable.FIRST_VALUE,
+              RexInputRef.of(newIndex, frame.r.getRowType()));
+
+      RexNode window = aggCall.over()
+          .orderBy(sort.getSortExps())
+          .partitionBy(corVarProjects.leftList())
+          .toRex();
+
+      windowProjects.add(window, field.getName());
+    }
+
+    final PairList<RexNode, String> newProjects = PairList.of();
+    newProjects.addAll(windowProjects);
+    newProjects.addAll(corVarProjects);
+
+    RelNode newProject = relBuilder.push(frame.r)
+        .project(newProjects.leftList(), newProjects.rightList())
+        .build();
+
+    List<RelBuilder.AggCall> anyValues = new ArrayList<>();
+    final Map<Integer, Integer> mapOldToNewOutputs = new HashMap<>();
+    int originOutputSize = windowProjects.size();
+    for (int i = 0; i < originOutputSize; i++) {
+      RelBuilder.AggCall anyValue =
+          relBuilder.aggregateCall(SqlStdOperatorTable.ANY_VALUE,
+              RexInputRef.of(i, newProject.getRowType()));
+      anyValues.add(anyValue);
+      mapOldToNewOutputs.put(i, i + corDefList.size());
+    }
+
+    final NavigableMap<CorDef, Integer> corDefOutputs = new TreeMap<>();
+    List<RexNode> groupKeys = new ArrayList<>();
+    for (int i = 0; i < corDefList.size(); i++) {
+      groupKeys.add(RexInputRef.of(i + originOutputSize, newProject.getRowType()));
+      corDefOutputs.put(corDefList.get(i), i);
+    }
+
+    RelBuilder.GroupKey groupKey = relBuilder.groupKey(groupKeys);
+    RelNode aggregate = relBuilder
+        .push(newProject)
+        .aggregate(groupKey, anyValues)
+        .build();
+
+    Frame newFrame = register(sort, aggregate, mapOldToNewOutputs, corDefOutputs);
+    map.put(sort, newFrame);
+    return newFrame;
+  }
+
   public @Nullable Frame getInvoke(RelNode r, boolean isCorVarDefined, @Nullable RelNode parent) {
     final Frame frame = dispatcher.invoke(r, isCorVarDefined);
     currentRel = parent;
-    if (frame != null && isCorVarDefined && r instanceof Sort) {
-      final Sort sort = (Sort) r;
-      // Can not decorrelate if the sort has per-correlate-key attributes like
-      // offset or fetch limit, because these attributes scope would change to
-      // global after decorrelation. They should take effect within the scope
-      // of the correlation key actually.
-      if (sort.offset != null || sort.fetch != null) {
-        return null;
-      }
-    }
     if (frame != null) {
       map.put(r, frame);
     }
@@ -2758,6 +2830,85 @@ public class RelDecorrelator implements ReflectiveVisitor {
 
       /** Sets {@link #flavor}. */
       AdjustProjectForCountAggregateRuleConfig withFlavor(boolean flavor);
+    }
+  }
+
+  /** Planner rule that adjusts projects when counts are added. */
+  public static final class FetchOneSortToAggregateRule
+      extends RelRule<FetchOneSortToAggregateRule.FetchOneSortToAggregateRuleConfig> {
+
+    public static final FetchOneSortToAggregateRule.FetchOneSortToAggregateRuleConfig DEFAULT =
+        ImmutableFetchOneSortToAggregateRuleConfig.builder()
+            .withOperandSupplier(b0 ->
+                b0.operand(Correlate.class)
+                    .inputs(
+                        r0 -> r0.operand(RelNode.class).anyInputs(),
+                        r1 -> r1.operand(Sort.class)
+                            .predicate(
+                                FetchOneSortToAggregateRule::fetchOneWithoutOffsetAndSimpleOrder)
+                            .anyInputs()))
+            .build();
+
+    /** Creates a RemoveSingleAggregateRule. */
+    FetchOneSortToAggregateRule(FetchOneSortToAggregateRuleConfig config) {
+      super(config);
+    }
+
+    @Override public void onMatch(RelOptRuleCall call) {
+      Correlate correlate = call.rel(0);
+      RelNode left = call.rel(1);
+      Sort sort = call.rel(2);
+      RelNode input = sort.getInput();
+      RelBuilder builder = call.builder();
+
+      assert sort.getCollation().getFieldCollations().size() == 1;
+
+      RelFieldCollation collation = sort.getCollation().getFieldCollations().get(0);
+      SqlAggFunction aggFunction;
+      switch (collation.getDirection()) {
+      case ASCENDING:
+      case STRICTLY_ASCENDING:
+        aggFunction = SqlStdOperatorTable.MIN;
+        break;
+      case DESCENDING:
+      case STRICTLY_DESCENDING:
+        aggFunction = SqlStdOperatorTable.MAX;
+        break;
+      default:
+        return;
+      }
+
+      builder.push(input);
+      RelBuilder.AggCall aggCall =
+          builder.aggregateCall(aggFunction,
+              builder.fields(ImmutableList.of(collation.getFieldIndex())));
+
+      RelNode aggregate = builder.aggregate(builder.groupKey(), aggCall).build();
+
+      Correlate result = correlate.copy(correlate.getTraitSet(), ImmutableList.of(left, aggregate));
+      call.transformTo(result);
+    }
+
+    private static boolean fetchOneWithoutOffsetAndSimpleOrder(Sort sort) {
+      final int offsetValue = sort.offset == null ? 0 : RexLiteral.intValue(sort.offset);
+      final int fetchValue = sort.fetch == null ? -1 : RexLiteral.intValue(sort.fetch);
+
+      if (offsetValue != 0 || fetchValue != 1) {
+        return false;
+      }
+
+      if (sort.getRowType().getFieldCount() != 1) {
+        return false;
+      }
+      return sort.getCollation().getFieldCollations().size() == 1;
+    }
+
+    /** Rule configuration. */
+    @Value.Immutable(singleton = false)
+    public interface FetchOneSortToAggregateRuleConfig extends RelRule.Config {
+      @Override default FetchOneSortToAggregateRule toRule() {
+        return new FetchOneSortToAggregateRule(this);
+      }
     }
   }
 
