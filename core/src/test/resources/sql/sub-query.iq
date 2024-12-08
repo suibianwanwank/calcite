@@ -422,6 +422,193 @@ where sal + 100 not in (
 
 !ok
 
+# Correlate literal filter with fetch one sort
+SELECT dname FROM "scott".dept WHERE 2000 > (SELECT emp.sal FROM "scott".emp where dept.deptno = emp.deptno ORDER BY emp.sal limit 1);
+
+EnumerableCalc(expr#0..1=[{inputs}], DNAME=[$t1])
+  EnumerableHashJoin(condition=[=($0, $2)], joinType=[semi])
+    EnumerableCalc(expr#0..2=[{inputs}], proj#0..1=[{exprs}])
+      EnumerableTableScan(table=[[scott, DEPT]])
+    EnumerableCalc(expr#0..1=[{inputs}], expr#2=[2000.00:DECIMAL(10, 2)], expr#3=[CAST($t1):DECIMAL(10, 2)], expr#4=[>($t2, $t3)], proj#0..1=[{exprs}], $condition=[$t4])
+      EnumerableAggregate(group=[{7}], agg#0=[MIN($5)])
+        EnumerableCalc(expr#0..7=[{inputs}], expr#8=[IS NOT NULL($t7)], proj#0..7=[{exprs}], $condition=[$t8])
+          EnumerableTableScan(table=[[scott, EMP]])
+!plan
++------------+
+| DNAME      |
++------------+
+| ACCOUNTING |
+| RESEARCH   |
+| SALES      |
++------------+
+(3 rows)
+
+!ok
+
+# Correlate literal filter with fetch one(empty table)
+SELECT dname FROM "scott".dept WHERE 2000 > (SELECT emp.sal FROM "scott".emp where dept.deptno = emp.deptno and mgr > 8000 ORDER BY emp.sal limit 1);
+
+EnumerableCalc(expr#0..1=[{inputs}], DNAME=[$t1])
+  EnumerableHashJoin(condition=[=($0, $2)], joinType=[semi])
+    EnumerableCalc(expr#0..2=[{inputs}], proj#0..1=[{exprs}])
+      EnumerableTableScan(table=[[scott, DEPT]])
+    EnumerableCalc(expr#0..1=[{inputs}], expr#2=[2000.00:DECIMAL(10, 2)], expr#3=[CAST($t1):DECIMAL(10, 2)], expr#4=[>($t2, $t3)], proj#0..1=[{exprs}], $condition=[$t4])
+      EnumerableAggregate(group=[{7}], agg#0=[MIN($5)])
+        EnumerableCalc(expr#0..7=[{inputs}], expr#8=[CAST($t3):INTEGER], expr#9=[8000], expr#10=[>($t8, $t9)], expr#11=[IS NOT NULL($t7)], expr#12=[AND($t10, $t11)], proj#0..7=[{exprs}], $condition=[$t12])
+          EnumerableTableScan(table=[[scott, EMP]])
+!plan
++-------+
+| DNAME |
++-------+
++-------+
+(0 rows)
+
+!ok
+
+# Correlate literal filter with fetch one and multi key
+SELECT dname FROM "scott".dept WHERE 2000 > (SELECT emp.sal FROM "scott".emp where dept.deptno = emp.deptno ORDER BY year(hiredate), emp.sal limit 1);
+
+EnumerableCalc(expr#0..1=[{inputs}], DNAME=[$t1])
+  EnumerableHashJoin(condition=[=($0, $3)], joinType=[semi])
+    EnumerableCalc(expr#0..2=[{inputs}], proj#0..1=[{exprs}])
+      EnumerableTableScan(table=[[scott, DEPT]])
+    EnumerableCalc(expr#0..1=[{inputs}], expr#2=[2000.00:DECIMAL(10, 2)], expr#3=[CAST($t1):DECIMAL(10, 2)], expr#4=[>($t2, $t3)], SAL=[$t1], DEPTNO=[$t0], $condition=[$t4])
+      EnumerableAggregate(group=[{1}], agg#0=[ANY_VALUE($3)])
+        EnumerableWindow(window#0=[window(partition {1} order by [2, 0] range between UNBOUNDED PRECEDING and UNBOUNDED FOLLOWING aggs [FIRST_VALUE($0)])])
+          EnumerableCalc(expr#0..7=[{inputs}], expr#8=[FLAG(YEAR)], expr#9=[EXTRACT($t8, $t4)], expr#10=[IS NOT NULL($t7)], SAL=[$t5], DEPTNO=[$t7], $2=[$t9], $condition=[$t10])
+            EnumerableTableScan(table=[[scott, EMP]])
+!plan
++----------+
+| DNAME    |
++----------+
+| RESEARCH |
+| SALES    |
++----------+
+(2 rows)
+
+!ok
+
+# Correlate literal filter with fetch one and multi key(empty table)
+SELECT dname FROM "scott".dept WHERE 2000 > (SELECT emp.sal FROM "scott".emp where dept.deptno = emp.deptno and mgr > 8000 ORDER BY year(hiredate), emp.sal limit 1);
+
+EnumerableCalc(expr#0..1=[{inputs}], DNAME=[$t1])
+  EnumerableHashJoin(condition=[=($0, $3)], joinType=[semi])
+    EnumerableCalc(expr#0..2=[{inputs}], proj#0..1=[{exprs}])
+      EnumerableTableScan(table=[[scott, DEPT]])
+    EnumerableCalc(expr#0..1=[{inputs}], expr#2=[2000.00:DECIMAL(10, 2)], expr#3=[CAST($t1):DECIMAL(10, 2)], expr#4=[>($t2, $t3)], SAL=[$t1], DEPTNO=[$t0], $condition=[$t4])
+      EnumerableAggregate(group=[{1}], agg#0=[ANY_VALUE($3)])
+        EnumerableWindow(window#0=[window(partition {1} order by [2, 0] range between UNBOUNDED PRECEDING and UNBOUNDED FOLLOWING aggs [FIRST_VALUE($0)])])
+          EnumerableCalc(expr#0..7=[{inputs}], expr#8=[FLAG(YEAR)], expr#9=[EXTRACT($t8, $t4)], expr#10=[CAST($t3):INTEGER], expr#11=[8000], expr#12=[>($t10, $t11)], expr#13=[IS NOT NULL($t7)], expr#14=[AND($t12, $t13)], SAL=[$t5], DEPTNO=[$t7], $2=[$t9], $condition=[$t14])
+            EnumerableTableScan(table=[[scott, EMP]])
+!plan
++-------+
+| DNAME |
++-------+
++-------+
+(0 rows)
+
+!ok
+
+# Correlate project with fetch one sort
+SELECT dname, (SELECT emp.sal FROM "scott".emp where dept.deptno = emp.deptno ORDER BY emp.sal limit 1) FROM "scott".dept;
+
+EnumerableCalc(expr#0..3=[{inputs}], DNAME=[$t1], EXPR$1=[$t3])
+  EnumerableMergeJoin(condition=[=($0, $2)], joinType=[left])
+    EnumerableCalc(expr#0..2=[{inputs}], proj#0..1=[{exprs}])
+      EnumerableTableScan(table=[[scott, DEPT]])
+    EnumerableSort(sort0=[$0], dir0=[ASC])
+      EnumerableAggregate(group=[{7}], agg#0=[MIN($5)])
+        EnumerableCalc(expr#0..7=[{inputs}], expr#8=[IS NOT NULL($t7)], proj#0..7=[{exprs}], $condition=[$t8])
+          EnumerableTableScan(table=[[scott, EMP]])
+!plan
++------------+---------+
+| DNAME      | EXPR$1  |
++------------+---------+
+| ACCOUNTING | 1300.00 |
+| OPERATIONS |         |
+| RESEARCH   |  800.00 |
+| SALES      |  950.00 |
++------------+---------+
+(4 rows)
+
+!ok
+
+# Correlate project with fetch one sort(empty table)
+SELECT dname, (SELECT emp.sal FROM "scott".emp where dept.deptno = emp.deptno and mgr > 8000 ORDER BY emp.sal limit 1) FROM "scott".dept;
+
+EnumerableCalc(expr#0..3=[{inputs}], DNAME=[$t1], EXPR$1=[$t3])
+  EnumerableMergeJoin(condition=[=($0, $2)], joinType=[left])
+    EnumerableCalc(expr#0..2=[{inputs}], proj#0..1=[{exprs}])
+      EnumerableTableScan(table=[[scott, DEPT]])
+    EnumerableSort(sort0=[$0], dir0=[ASC])
+      EnumerableAggregate(group=[{7}], agg#0=[MIN($5)])
+        EnumerableCalc(expr#0..7=[{inputs}], expr#8=[CAST($t3):INTEGER], expr#9=[8000], expr#10=[>($t8, $t9)], expr#11=[IS NOT NULL($t7)], expr#12=[AND($t10, $t11)], proj#0..7=[{exprs}], $condition=[$t12])
+          EnumerableTableScan(table=[[scott, EMP]])
+!plan
++------------+--------+
+| DNAME      | EXPR$1 |
++------------+--------+
+| ACCOUNTING |        |
+| OPERATIONS |        |
+| RESEARCH   |        |
+| SALES      |        |
++------------+--------+
+(4 rows)
+
+!ok
+
+# Correlate project with fetch one sort and multi key
+SELECT dname, (SELECT emp.sal FROM "scott".emp where dept.deptno = emp.deptno ORDER BY year(hiredate), emp.sal limit 1) FROM "scott".dept;
+
+EnumerableCalc(expr#0..3=[{inputs}], DNAME=[$t1], EXPR$1=[$t2])
+  EnumerableMergeJoin(condition=[=($0, $3)], joinType=[left])
+    EnumerableCalc(expr#0..2=[{inputs}], proj#0..1=[{exprs}])
+      EnumerableTableScan(table=[[scott, DEPT]])
+    EnumerableSort(sort0=[$1], dir0=[ASC])
+      EnumerableCalc(expr#0..1=[{inputs}], SAL=[$t1], DEPTNO=[$t0])
+        EnumerableAggregate(group=[{1}], agg#0=[ANY_VALUE($3)])
+          EnumerableWindow(window#0=[window(partition {1} order by [2, 0] range between UNBOUNDED PRECEDING and UNBOUNDED FOLLOWING aggs [FIRST_VALUE($0)])])
+            EnumerableCalc(expr#0..7=[{inputs}], expr#8=[FLAG(YEAR)], expr#9=[EXTRACT($t8, $t4)], expr#10=[IS NOT NULL($t7)], SAL=[$t5], DEPTNO=[$t7], $2=[$t9], $condition=[$t10])
+              EnumerableTableScan(table=[[scott, EMP]])
+!plan
++------------+---------+
+| DNAME      | EXPR$1  |
++------------+---------+
+| ACCOUNTING | 2450.00 |
+| OPERATIONS |         |
+| RESEARCH   |  800.00 |
+| SALES      |  950.00 |
++------------+---------+
+(4 rows)
+
+!ok
+
+# Correlate project with fetch one sort and multi key(empty table)
+SELECT dname, (SELECT emp.sal FROM "scott".emp where dept.deptno = emp.deptno and mgr > 8000 ORDER BY year(hiredate), emp.sal limit 1) FROM "scott".dept;
+
+EnumerableCalc(expr#0..3=[{inputs}], DNAME=[$t1], EXPR$1=[$t2])
+  EnumerableMergeJoin(condition=[=($0, $3)], joinType=[left])
+    EnumerableCalc(expr#0..2=[{inputs}], proj#0..1=[{exprs}])
+      EnumerableTableScan(table=[[scott, DEPT]])
+    EnumerableSort(sort0=[$1], dir0=[ASC])
+      EnumerableCalc(expr#0..1=[{inputs}], SAL=[$t1], DEPTNO=[$t0])
+        EnumerableAggregate(group=[{1}], agg#0=[ANY_VALUE($3)])
+          EnumerableWindow(window#0=[window(partition {1} order by [2, 0] range between UNBOUNDED PRECEDING and UNBOUNDED FOLLOWING aggs [FIRST_VALUE($0)])])
+            EnumerableCalc(expr#0..7=[{inputs}], expr#8=[FLAG(YEAR)], expr#9=[EXTRACT($t8, $t4)], expr#10=[CAST($t3):INTEGER], expr#11=[8000], expr#12=[>($t10, $t11)], expr#13=[IS NOT NULL($t7)], expr#14=[AND($t12, $t13)], SAL=[$t5], DEPTNO=[$t7], $2=[$t9], $condition=[$t14])
+              EnumerableTableScan(table=[[scott, EMP]])
+!plan
++------------+--------+
+| DNAME      | EXPR$1 |
++------------+--------+
+| ACCOUNTING |        |
+| OPERATIONS |        |
+| RESEARCH   |        |
+| SALES      |        |
++------------+--------+
+(4 rows)
+
+!ok
+
 # Condition that happens to eliminate all NULL keys.
 # The one missing row has {ename: 'MARTIN', comm: 1400}
 # Tested on Oracle.
