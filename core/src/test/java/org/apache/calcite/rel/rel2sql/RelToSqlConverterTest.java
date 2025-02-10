@@ -357,6 +357,27 @@ class RelToSqlConverterTest {
         .withStarRocks().ok(expectedStarRocks);
   }
 
+  @Test void testAntiJoinWithComplexInput() {
+    final String sql = "SELECT * FROM "
+        + "(select * from ("
+        + "select e1.\"product_id\" FROM \"foodmart\".\"product\" e1 "
+        + "LEFT JOIN \"foodmart\".\"product\" e3 "
+        + "on e1.\"product_id\" = e3.\"product_id\""
+        + ")"
+        + ") selected where not exists\n"
+        + "(select 1 from \"foodmart\".\"product\" e2 "
+        + "where e2.\"product_id\" = selected.\"product_id\" and e2.\"product_id\" > 10)";
+    final String expected =
+        "SELECT *\nFROM (SELECT \"product\".\"product_id\"\nFROM \"foodmart\".\"product\"\n"
+            + "LEFT JOIN \"foodmart\".\"product\" AS \"product0\" "
+            + "ON \"product\".\"product_id\" = \"product0\".\"product_id\") AS \"t\"\n"
+            + "WHERE NOT EXISTS ("
+            + "SELECT *\nFROM \"foodmart\".\"product\"\n"
+            + "WHERE \"product_id\" = \"t\".\"product_id\" AND \"product_id\" > 10"
+            + ")";
+    sql(sql).ok(expected);
+  }
+
   /** Test case for <a href="https://issues.apache.org/jira/browse/CALCITE-6566">[CALCITE-6566]</a>
    * JDBC adapter should generate PI function with parentheses in most dialects. */
   @Test void testPiFunction() {
