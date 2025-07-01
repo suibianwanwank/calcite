@@ -496,10 +496,7 @@ public class RelFieldTrimmer implements ReflectiveVisitor {
       }
     }
 
-    // Collect all the SubQueries in the projection list.
-    List<RexSubQuery> subQueries = RexUtil.SubQueryCollector.collect(project);
-    // Get all the correlationIds present in the SubQueries
-    Set<CorrelationId> correlationIds = RelOptUtil.getVariablesUsed(subQueries);
+    Set<CorrelationId> correlationIds = project.getVariablesSet();
     ImmutableBitSet requiredColumns = ImmutableBitSet.of();
     if (!correlationIds.isEmpty()) {
       assert correlationIds.size() == 1;
@@ -946,7 +943,7 @@ public class RelFieldTrimmer implements ReflectiveVisitor {
           requireNonNull(newMatchConditionExpr, "newMatchConditionExpr"));
       break;
     default:
-      relBuilder.join(join.getJoinType(), newConditionExpr);
+      relBuilder.join(join.getJoinType(), newConditionExpr, join.getVariablesSet());
       break;
     }
     return result(relBuilder.build(), mapping, join);

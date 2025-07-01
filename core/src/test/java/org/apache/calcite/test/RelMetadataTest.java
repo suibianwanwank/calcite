@@ -476,11 +476,11 @@ public class RelMetadataTest {
     final RelNode relNode = planner.findBestExp();
 
     String expect = "LogicalProject(EXPR$0=[$9])\n"
-        + "  LogicalCorrelate(correlation=[$cor1], joinType=[left], requiredColumns=[{1, 7}])\n"
+        + "  LogicalCorrelate(correlation=[$cor2], joinType=[left], requiredColumns=[{1, 7}])\n"
         + "    LogicalTableScan(table=[[CATALOG, SALES, EMP]])\n"
         + "    LogicalAggregate(group=[{}], EXPR$0=[MAX($0)])\n"
-        + "      LogicalProject($f0=[||(||($1, '_'), $cor1.ENAME)])\n"
-        + "        LogicalFilter(condition=[=($cor1.DEPTNO, $0)])\n"
+        + "      LogicalProject($f0=[||(||($1, '_'), $cor2.ENAME)])\n"
+        + "        LogicalFilter(condition=[=($cor2.DEPTNO, $0)])\n"
         + "          LogicalTableScan(table=[[CATALOG, SALES, DEPT]])\n";
     assertThat(relNode, hasTree(expect));
 

@@ -251,14 +251,14 @@ public class RelDecorrelatorTest {
         + "LogicalProject(EXPR$0=[1])\n"
         + "  LogicalProject(DEPTNO=[$0], TOTAL=[$1])\n"
         + "    LogicalFilter(condition=[>($1, $2)])\n"
-        + "      LogicalCorrelate(correlation=[$cor0], joinType=[left], requiredColumns=[{0}])\n"
+        + "      LogicalCorrelate(correlation=[$cor1], joinType=[left], requiredColumns=[{0}])\n"
         + "        LogicalAggregate(group=[{0}], TOTAL=[SUM($1)])\n"
         + "          LogicalProject(DEPTNO=[$7], SAL=[$5])\n"
         + "            LogicalTableScan(table=[[scott, EMP]])\n"
         + "        LogicalAggregate(group=[{}], EXPR$0=[AVG($0)])\n"
         + "          LogicalProject(TOTAL=[$1])\n"
         + "            LogicalAggregate(group=[{0}], TOTAL=[SUM($1)])\n"
-        + "              LogicalFilter(condition=[=($cor0.DEPTNO, $0)])\n"
+        + "              LogicalFilter(condition=[=($cor1.DEPTNO, $0)])\n"
         + "                LogicalProject(DEPTNO=[$7], SAL=[$5])\n"
         + "                  LogicalTableScan(table=[[scott, EMP]])\n";
     assertThat(before, hasTree(planBefore));
@@ -325,11 +325,11 @@ public class RelDecorrelatorTest {
             Collections.emptyList(), Collections.emptyList());
     final String planOriginal = ""
         + "LogicalProject(EXPR$0=[ROW($8, $1)])\n"
-        + "  LogicalCorrelate(correlation=[$cor0], joinType=[left], requiredColumns=[{7}])\n"
+        + "  LogicalCorrelate(correlation=[$cor1], joinType=[left], requiredColumns=[{7}])\n"
         + "    LogicalTableScan(table=[[scott, EMP]])\n"
         + "    LogicalAggregate(group=[{}], agg#0=[SINGLE_VALUE($0)])\n"
         + "      LogicalProject(DEPTNO=[$0])\n"
-        + "        LogicalFilter(condition=[=($0, $cor0.DEPTNO)])\n"
+        + "        LogicalFilter(condition=[=($0, $cor1.DEPTNO)])\n"
         + "          LogicalTableScan(table=[[scott, DEPT]])\n";
     assertThat(original, hasTree(planOriginal));
 

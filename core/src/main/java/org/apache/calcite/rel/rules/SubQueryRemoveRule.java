@@ -135,7 +135,7 @@ public class SubQueryRemoveRule
           builder.aggregateCall(SqlStdOperatorTable.SINGLE_VALUE,
               builder.field(0)));
     }
-    builder.join(JoinRelType.LEFT, builder.literal(true), variablesSet);
+    builder.join(JoinRelType.LEFT, builder.literal(true), variablesSet, true);
     return field(builder, inputCount, offset);
   }
 
@@ -156,7 +156,7 @@ public class SubQueryRemoveRule
     builder.push(e.rel);
     builder.push(
         Collect.create(builder.build(), e.getKind(), "x"));
-    builder.join(JoinRelType.INNER, builder.literal(true), variablesSet);
+    builder.join(JoinRelType.INNER, builder.literal(true), variablesSet, true);
     return field(builder, inputCount, offset);
   }
 
@@ -356,7 +356,7 @@ public class SubQueryRemoveRule
                 builder.count(false, "d", builder.field(0)),
                 builder.literalAgg(true, indicator));
         builder.as(qAlias);
-        builder.join(JoinRelType.LEFT, literalTrue, variablesSet);
+        builder.join(JoinRelType.LEFT, literalTrue, variablesSet, true);
         caseRexNode =
             builder.call(SqlStdOperatorTable.CASE,
                 builder.isNull(builder.field(qAlias, indicator)),
@@ -416,7 +416,7 @@ public class SubQueryRemoveRule
                 builder.max(builder.field(0)).as("m"),
                 builder.literalAgg(true, indicator));
         builder.as(qAlias);
-        builder.join(JoinRelType.LEFT, literalTrue, variablesSet);
+        builder.join(JoinRelType.LEFT, literalTrue, variablesSet, true);
         caseRexNode =
             builder.call(SqlStdOperatorTable.CASE,
                 builder.isNull(builder.field(qAlias, indicator)),
@@ -484,7 +484,7 @@ public class SubQueryRemoveRule
       // where exists (select deptno from emp)
       builder.aggregate(builder.groupKey(0));
       builder.as("dt");
-      builder.join(JoinRelType.INNER, builder.literal(true), variablesSet);
+      builder.join(JoinRelType.INNER, builder.literal(true), variablesSet, true);
       return builder.literal(true);
     default:
       builder.distinct();
@@ -492,7 +492,7 @@ public class SubQueryRemoveRule
 
     builder.as("dt");
 
-    builder.join(JoinRelType.LEFT, builder.literal(true), variablesSet);
+    builder.join(JoinRelType.LEFT, builder.literal(true), variablesSet, true);
 
     return builder.isNotNull(last(builder.fields()));
   }
@@ -742,9 +742,9 @@ public class SubQueryRemoveRule
         }
         builder.as(ctAlias);
         if (!variablesSet.isEmpty()) {
-          builder.join(JoinRelType.LEFT, trueLiteral, variablesSet);
+          builder.join(JoinRelType.LEFT, trueLiteral, variablesSet, true);
         } else {
-          builder.join(JoinRelType.INNER, trueLiteral, variablesSet);
+          builder.join(JoinRelType.INNER, trueLiteral, variablesSet, true);
         }
         offset += 2;
         builder.push(e.rel);
@@ -767,13 +767,13 @@ public class SubQueryRemoveRule
             .collect(Collectors.toList());
     switch (logic) {
     case TRUE:
-      builder.join(JoinRelType.INNER, builder.and(conditions), variablesSet);
+      builder.join(JoinRelType.INNER, builder.and(conditions), variablesSet, true);
       return trueLiteral;
     default:
       break;
     }
     // Now the left join
-    builder.join(JoinRelType.LEFT, builder.and(conditions), variablesSet);
+    builder.join(JoinRelType.LEFT, builder.and(conditions), variablesSet, true);
 
     final ImmutableList.Builder<RexNode> operands = ImmutableList.builder();
     RexLiteral b = trueLiteral;
@@ -866,13 +866,23 @@ public class SubQueryRemoveRule
             project.getProjects(), e);
     builder.push(project.getInput());
     final int fieldCount = builder.peek().getRowType().getFieldCount();
-    final Set<CorrelationId>  variablesSet =
+    final Set<CorrelationId> variablesSet =
         RelOptUtil.getVariablesUsed(e.rel);
+    variablesSet.retainAll(project.getVariablesSet());
     final RexNode target =
         rule.apply(e, variablesSet, logic, builder, 1, fieldCount, 0);
     final RexShuttle shuttle = new ReplaceSubQueryShuttle(e, target);
-    builder.project(shuttle.apply(project.getProjects()),
-        project.getRowType().getFieldNames());
+    List<RexNode> newProjects = shuttle.apply(project.getProjects());
+
+    Set<CorrelationId> remainCorIds = RelOptUtil.getVariablesUsed(newProjects);
+    if (remainCorIds.containsAll(project.getVariablesSet())) {
+      remainCorIds.retainAll(project.getVariablesSet());
+      builder.project(newProjects, project.getRowType().getFieldNames(), false, remainCorIds);
+      call.transformTo(builder.build());
+      return;
+    }
+
+    builder.project(newProjects, project.getRowType().getFieldNames());
     call.transformTo(builder.build());
   }
 
@@ -897,10 +907,7 @@ public class SubQueryRemoveRule
           RelOptUtil.getVariablesUsed(e.rel);
       // Filter without variables could be handled before this change, we do not want
       // to break it yet for compatibility reason.
-      if (!filterVariablesSet.isEmpty()) {
-        // Only consider the correlated variables which originated from this sub-query level.
-        variablesSet.retainAll(filterVariablesSet);
-      }
+      variablesSet.retainAll(filterVariablesSet);
       final RexNode target =
           rule.apply(e, variablesSet, logic,
               builder, 1, builder.peek().getRowType().getFieldCount(), count);
@@ -939,6 +946,7 @@ public class SubQueryRemoveRule
     //
     // In such a case $cor0.DNAME need to be accounted as input form left side.
     final Set<CorrelationId> variablesSet = RelOptUtil.getVariablesUsed(e.rel);
+    variablesSet.retainAll(join.getVariablesSet());
     for (CorrelationId id : variablesSet) {
       ImmutableBitSet requiredColumns = RelOptUtil.correlationColumns(id, e.rel);
       inputSet = ImmutableBitSet.union(ImmutableList.of(requiredColumns, inputSet));

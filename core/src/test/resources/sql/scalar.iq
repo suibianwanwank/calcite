@@ -318,4 +318,20 @@ select
 
 !ok
 
+select
+    (select ename || ' from dept '
+                  || (select dname from dept where deptno = emp.deptno and emp.empno = empnos.empno)
+       from emp where empno =  empnos.empno
+    ) as ename_from_dept
+  from (values (7369), (7499)) as empnos(empno) order by 1;
++--------------------------+
+| ENAME_FROM_DEPT          |
++--------------------------+
+| ALLEN from dept SALES    |
+| SMITH from dept RESEARCH |
++--------------------------+
+(2 rows)
+
+!ok
+
 # End scalar.iq

@@ -42,6 +42,7 @@ import org.apache.calcite.tools.Programs;
 import org.apache.calcite.tools.RelBuilder;
 import org.apache.calcite.util.Holder;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -49,6 +50,8 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.List;
+
+import static java.util.Objects.requireNonNull;
 
 import static org.apache.calcite.test.Matchers.hasTree;
 
@@ -686,18 +689,21 @@ class RelFieldTrimmerTest {
             builder.call(SqlStdOperatorTable.GREATER_THAN, builder.field(5),
             builder.literal(10)))
         .project(
-            builder.field(0),
-            builder.scalarQuery(
-                b2 -> builder.scan("EMP").filter(
-                    builder.call(SqlStdOperatorTable.LESS_THAN,
-                        builder.field(3), builder.field(v.get(), "MGR")))
-                    .project(builder.field(0))
-                    .aggregate(builder.groupKey(), builder.countStar("c"))
-                    .build()))
+            ImmutableList.of(builder.field(0),
+                builder.scalarQuery(
+                    b2 -> builder.scan("EMP").filter(
+                            builder.call(SqlStdOperatorTable.LESS_THAN,
+                                builder.field(3), builder.field(v.get(), "MGR")))
+                        .project(builder.field(0))
+                        .aggregate(builder.groupKey(), builder.countStar("c"))
+                        .build())),
+            ImmutableList.of(),
+            false,
+            ImmutableList.of(requireNonNull(v.get()).id))
         .build();
 
     String origTree = ""
-        + "LogicalProject(EMPNO=[$0], $f1=[$SCALAR_QUERY({\n"
+        + "LogicalProject(variablesSet=[[$cor0]], EMPNO=[$0], $f1=[$SCALAR_QUERY({\n"
         + "LogicalAggregate(group=[{}], c=[COUNT()])\n"
         + "  LogicalFilter(condition=[<($3, $cor0.MGR)])\n"
         + "    LogicalTableScan(table=[[scott, EMP]])\n})])\n"

@@ -3185,6 +3185,12 @@ public class RelBuilder {
   /** Creates a {@link Join} with correlating variables. */
   public RelBuilder join(JoinRelType joinType, RexNode condition,
       Set<CorrelationId> variablesSet) {
+    return join(joinType, condition, variablesSet, false);
+  }
+
+  /** Creates a {@link Join} with an option to replace {@link CorrelationId}. */
+  public RelBuilder join(JoinRelType joinType, RexNode condition,
+      Set<CorrelationId> variablesSet, boolean replaceCorVar) {
     Frame right = stack.pop();
     final Frame left = stack.pop();
     final RelNode join;
@@ -3220,9 +3226,17 @@ public class RelBuilder {
         throw new IllegalArgumentException("Correlated " + joinType + " join is not supported");
       }
       final ImmutableBitSet requiredColumns = RelOptUtil.correlationColumns(id, right.rel);
-      join =
-          struct.correlateFactory.createCorrelate(left.rel, right.rel, ImmutableList.of(), id,
-              requiredColumns, joinType);
+      if (replaceCorVar) {
+        CorrelationId newId = cluster.createCorrel();
+        RelNode newRightRel = RexUtil.replaceCorrelationId(getRexBuilder(), right.rel, id, newId);
+        join =
+            struct.correlateFactory.createCorrelate(left.rel,
+                newRightRel, ImmutableList.of(), newId, requiredColumns, joinType);
+      } else {
+        join =
+            struct.correlateFactory.createCorrelate(left.rel, right.rel, ImmutableList.of(), id,
+                requiredColumns, joinType);
+      }
     } else {
       RelNode join0 =
           struct.joinFactory.createJoin(left.rel, right.rel,

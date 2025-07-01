@@ -1480,10 +1480,10 @@ public class RelDecorrelator implements ReflectiveVisitor {
     case EQUALS:
       final RexCall call = (RexCall) e;
       final List<RexNode> operands = call.getOperands();
-      if (references(operands.get(0), correlation)) {
+      if (references(operands.get(0), correlation) && !containVariable(operands.get(1))) {
         throw new Util.FoundOne(operands.get(1));
       }
-      if (references(operands.get(1), correlation)) {
+      if (references(operands.get(1), correlation) && !containVariable(operands.get(0))) {
         throw new Util.FoundOne(operands.get(0));
       }
       break;
@@ -1495,6 +1495,12 @@ public class RelDecorrelator implements ReflectiveVisitor {
     default:
       break;
     }
+  }
+
+  private static boolean containVariable(RexNode e) {
+    RelOptUtil.VariableUsedVisitor usedVisitor = new RelOptUtil.VariableUsedVisitor(null);
+    e.accept(usedVisitor);
+    return !usedVisitor.variableFields.isEmpty();
   }
 
   private static boolean references(RexNode e, CorRef correlation) {

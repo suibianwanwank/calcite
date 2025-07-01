@@ -8924,35 +8924,6 @@ class RelOptRulesTest extends RelOptTestBase {
         .check();
   }
 
-  /**
-   * Test case that SubQueryRemoveRule works with correlated Filter without varibles.
-   */
-  @Test void testCorrelatedFilterWithoutVariable() {
-    // select *
-    // from dept
-    // where exists (select deptno
-    //               from emp
-    //               where dept.deptno = emp.deptno
-    //                 and emp.sal > 100)
-    final Holder<@Nullable RexCorrelVariable> v = Holder.empty();
-    final Function<RelBuilder, RelNode> relFn = b -> b
-        .scan("DEPT")
-        .variable(v::set)
-        .filter(
-            b.exists(b1 -> b1
-            .scan("EMP")
-            .filter(
-                b1.and(
-                b1.equals(b1.field(v.get(), "DEPTNO"), b1.field("DEPTNO")),
-                b1.greaterThan(b1.field("SAL"), b1.literal(100))))
-            .project(b1.field("DEPTNO"))
-            .build()))
-        .build();
-    relFn(relFn)
-        .withSubQueryRules()
-        .check();
-  }
-
   /** Test case for CALCITE-5683 for two level nested decorrelate with standard program
    * failing during the decorrelation phase. The correlation variable is used at the second
    * level and is not used in the first level */

@@ -3048,11 +3048,19 @@ public class SqlToRelConverter {
           p.id, requiredCols, joinType);
     }
 
-    final RelNode node =
+    RelNode node =
         relBuilder.push(leftRel)
             .push(rightRel)
             .join(joinType, joinCond)
             .build();
+
+    final CorrelationUse p1 = getCorrelationUse(bb, node);
+    if (p1 != null) {
+      node = relBuilder.push(leftRel)
+          .push(rightRel)
+          .join(joinType, joinCond, ImmutableSet.of(p1.id))
+          .build();
+    }
 
     // If join conditions are pushed down, update the leaves.
     if (node instanceof Project) {
@@ -3701,8 +3709,9 @@ public class SqlToRelConverter {
     }
     relBuilder.filter(variableSet, havingExpr);
 
+    Set<CorrelationId> projectVariables = RelOptUtil.getVariablesUsed(projects.leftList());
     // implement the SELECT list
-    relBuilder.project(projects.leftList(), projects.rightList())
+    relBuilder.project(projects.leftList(), projects.rightList(), false, projectVariables)
         .rename(projects.rightList());
     bb.setRoot(relBuilder.build(), false);
 

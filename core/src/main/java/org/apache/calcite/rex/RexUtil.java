@@ -24,7 +24,9 @@ import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.rel.RelCollation;
 import org.apache.calcite.rel.RelCollations;
 import org.apache.calcite.rel.RelFieldCollation;
+import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Calc;
+import org.apache.calcite.rel.core.CorrelationId;
 import org.apache.calcite.rel.core.Filter;
 import org.apache.calcite.rel.core.Join;
 import org.apache.calcite.rel.core.Project;
@@ -41,6 +43,7 @@ import org.apache.calcite.sql.type.SqlTypeFamily;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.sql.type.SqlTypeUtil;
 import org.apache.calcite.sql.validate.SqlValidatorUtil;
+import org.apache.calcite.sql2rel.RexRewritingRelShuttle;
 import org.apache.calcite.tools.RelBuilder;
 import org.apache.calcite.util.ControlFlowException;
 import org.apache.calcite.util.ImmutableBitSet;
@@ -1871,6 +1874,31 @@ public class RexUtil {
           }
         });
   }
+
+  /**
+   * Replace every {@link RexFieldAccess} in the given {@link RelNode}
+   * that references the specified {@link CorrelationId} with another {@link CorrelationId}.
+   */
+  public static RelNode replaceCorrelationId(RexBuilder rexBuilder, RelNode node,
+      final CorrelationId from, final CorrelationId to) {
+    final RexShuttle rexShuttle = new RexShuttle() {
+      @Override public RexNode visitFieldAccess(RexFieldAccess fieldAccess) {
+        if (fieldAccess.getReferenceExpr() instanceof RexCorrelVariable
+            && ((RexCorrelVariable) fieldAccess.getReferenceExpr()).id.equals(from)) {
+          RexNode correl = rexBuilder.makeCorrel(fieldAccess.getReferenceExpr().getType(), to);
+          return rexBuilder.makeFieldAccess(correl, fieldAccess.getField().getIndex());
+        }
+        return fieldAccess;
+      }
+
+      @Override public RexNode visitSubQuery(RexSubQuery subQuery) {
+        subQuery = subQuery.clone(replaceCorrelationId(rexBuilder, subQuery.rel, from, to));
+        return super.visitSubQuery(subQuery);
+      }
+    };
+    return node.accept(new RexRewritingRelShuttle(rexShuttle));
+  }
+
 
   /** Creates an equivalent version of a node where common factors among ORs
    * are pulled up.

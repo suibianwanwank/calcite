@@ -304,19 +304,23 @@ public abstract class RelOptUtil {
   }
 
   /**
-   * Returns the set of variables used by the given list of sub-queries and its descendants.
-   *
-   * @param subQueries The sub-queries containing correlation variables
-   * @return A list of correlation identifiers found within the sub-queries.
-   *          The type of the [CorrelationId] parameter corresponds to
-   *          {@link org.apache.calcite.rex.RexCorrelVariable#id}.
+   * Returns the set of variables used by a rexNode.
    */
-  public static Set<CorrelationId> getVariablesUsed(List<RexSubQuery> subQueries) {
+  public static Set<CorrelationId> getVariablesUsed(RexNode rexNode) {
+    CorrelationCollector visitor = new CorrelationCollector();
+    rexNode.accept(visitor.vuv);
+    return visitor.vuv.variables;
+  }
+
+  /**
+   * Returns the set of variables used by the given list of rexNode.
+   */
+  public static Set<CorrelationId> getVariablesUsed(List<RexNode> rexNodes) {
     // Internally this function calls getVariablesUsed on a RelNode to get all the
     // correlated variables in that RelNode
     Set<CorrelationId> correlationIds = new HashSet<>();
-    for (RexSubQuery subQ : subQueries) {
-      correlationIds.addAll(getVariablesUsed(subQ.rel));
+    for (RexNode rexNode : rexNodes) {
+      correlationIds.addAll(getVariablesUsed(rexNode));
     }
     return correlationIds;
   }
